@@ -16,7 +16,11 @@
 // Package demo is used for demonstration and testing of walkabout.
 package demo
 
-import "github.com/cockroachdb/walkabout/demo/other"
+import (
+	"strconv"
+
+	"github.com/cockroachdb/walkabout/demo/other"
+)
 
 //lint:file-ignore U1000 Ignore code for demos.
 //go:generate -command walkabout go run ..
@@ -47,8 +51,12 @@ var (
 	_ EmbedsTarget = ByValType{}
 )
 
-// Targets is a named slice of a visitable interface.
+// Targets is a named slice of a visitable interface. It also implements
+// the Target interface, so it's both visitable and traversable.
 type Targets []Target
+
+// Value implements the Target interface.
+func (t Targets) Value() string { return strconv.Itoa(len(t)) }
 
 // ByRefType implements Target with a pointer receiver.
 type ByRefType struct {
@@ -128,7 +136,7 @@ type ContainerType struct {
 	// Unexported fields aren't generated.
 	ignored ByRefType
 	// Unexported types aren't generated.
-	Ignored *ignoredType
+	Ignored []*ignoredType
 
 	// This field will be generated only when in --union mode.
 	UnionableType *UnionableType
