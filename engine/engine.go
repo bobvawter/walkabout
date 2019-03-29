@@ -167,21 +167,11 @@ enter:
 		}
 	}
 
-	// In this switch statement, we're going to set up the next frame. If
-	// the current value doesn't need a new frame to be pushed, we'll jump
-	// into the unwind block.
-	switch curSlot.typeData.Kind {
-	case KindPointer:
-		// We dereference the pointer and push the resulting memory
-		// location as a 1-slot frame.
-		ptr := *(*Ptr)(curSlot.value)
-		if ptr == nil {
-			goto unwind
-		}
-		entering = stack.Enter(curFrame.Intercept, 1)
-		entering.SetSlot(e, 0, ctx.ActionVisitReplace(curSlot.typeData.elemData, ptr, curSlot.typeData.elemData))
-
-	case KindStruct:
+	// Visitability and traversability are only loosely related, so we
+	// we may likely want to call the user function on e.g. a declared
+	// slice type that happens to implement the target interface and then
+	// proceed to traverse it.
+	if curSlot.typeData.Facade != nil {
 		// Allow parent frames to intercept child values.
 		if curFrame.Intercept != nil {
 			d := curSlot.typeData.Facade(ctx, curFrame.Intercept, curSlot.value)
@@ -210,10 +200,7 @@ enter:
 		if d.halt {
 			halting = true
 		}
-		// Slices and structs have very similar approaches, we create a new
-		// frame, add slots for each field or slice element, and then jump
-		// back to the top.
-		fieldCount := len(curSlot.typeData.Fields)
+
 		switch {
 		case halting, d.skip:
 			goto unwind
@@ -226,46 +213,69 @@ enter:
 			for i, a := range d.actions {
 				entering.SetSlot(e, i, a)
 			}
-
 		default:
-			if fieldCount == 0 {
-				goto unwind
+
+			// In this switch statement, we're going to set up the next frame. If
+			// the current value doesn't need a new frame to be pushed, we'll jump
+			// into the unwind block.
+			switch curSlot.typeData.Kind {
+			case KindOpaque:
+				// Nothing to do.
+			case KindPointer:
+				// We dereference the pointer and push the resulting memory
+				// location as a 1-slot frame.
+				ptr := *(*Ptr)(curSlot.value)
+				if ptr == nil {
+					goto unwind
+				}
+				entering = stack.Enter(curFrame.Intercept, 1)
+				entering.SetSlot(e, 0, ctx.ActionVisitReplace(curSlot.typeData.elemData, ptr, curSlot.typeData.elemData))
+
+			case KindStruct:
+				// Slices and structs have very similar approaches, we create a new
+				// frame, add slots for each field or slice element, and then jump
+				// back to the top.
+				fieldCount := len(curSlot.typeData.Fields)
+				if fieldCount == 0 {
+					goto unwind
+				}
+				entering = stack.Enter(d.intercept, fieldCount)
+				for i := 0; i < fieldCount; i++ {
+					f := curSlot.typeData.Fields[i]
+					fPtr := Ptr(uintptr(curSlot.value) + f.Offset)
+					entering.SetSlot(e, i, ctx.ActionVisitReplace(f.targetData, fPtr, f.targetData))
+				}
+
+			case KindSlice:
+				// Slices have the same general flow as a struct; they're just
+				// a sequence of visitable values.
+				header := (*reflect.SliceHeader)(curSlot.value)
+				if header.Len == 0 {
+					goto unwind
+				}
+				entering = stack.Enter(curFrame.Intercept, header.Len)
+				eltTd := curSlot.typeData.elemData
+				for i, off := 0, uintptr(0); i < header.Len; i, off = i+1, off+eltTd.SizeOf {
+					entering.SetSlot(e, i, ctx.ActionVisitReplace(eltTd, Ptr(header.Data+off), eltTd))
+				}
+
+			case KindInterface:
+				// An interface is a type-tag and a pointer.
+				ptr := (*[2]Ptr)(curSlot.value)[1]
+				// We do need to map the type-tag to our TypeID.
+				// Perhaps this could be accomplished with a map?
+				elem := curSlot.typeData.IntfType(curSlot.value)
+				// Need to check elem==0 in the case of a "typed nil" value.
+				if elem == 0 || ptr == nil {
+					goto unwind
+				}
+				entering = stack.Enter(curFrame.Intercept, 1)
+				entering.SetSlot(e, 0, ctx.ActionVisitReplace(e.typeData(elem), ptr, curSlot.typeData))
+
+			default:
+				panic(fmt.Errorf("unexpected kind: %d", curSlot.typeData.Kind))
 			}
-			entering = stack.Enter(d.intercept, fieldCount)
-			for i, f := range curSlot.typeData.Fields {
-				fPtr := Ptr(uintptr(curSlot.value) + f.Offset)
-				entering.SetSlot(e, i, ctx.ActionVisitReplace(f.targetData, fPtr, f.targetData))
-			}
 		}
-
-	case KindSlice:
-		// Slices have the same general flow as a struct; they're just
-		// a sequence of visitable values.
-		header := (*reflect.SliceHeader)(curSlot.value)
-		if header.Len == 0 {
-			goto unwind
-		}
-		entering = stack.Enter(curFrame.Intercept, header.Len)
-		eltTd := curSlot.typeData.elemData
-		for i, off := 0, uintptr(0); i < header.Len; i, off = i+1, off+eltTd.SizeOf {
-			entering.SetSlot(e, i, ctx.ActionVisitReplace(eltTd, Ptr(header.Data+off), eltTd))
-		}
-
-	case KindInterface:
-		// An interface is a type-tag and a pointer.
-		ptr := (*[2]Ptr)(curSlot.value)[1]
-		// We do need to map the type-tag to our TypeID.
-		// Perhaps this could be accomplished with a map?
-		elem := curSlot.typeData.IntfType(curSlot.value)
-		// Need to check elem==0 in the case of a "typed nil" value.
-		if elem == 0 || ptr == nil {
-			goto unwind
-		}
-		entering = stack.Enter(curFrame.Intercept, 1)
-		entering.SetSlot(e, 0, ctx.ActionVisitReplace(e.typeData(elem), ptr, curSlot.typeData))
-
-	default:
-		panic(fmt.Errorf("unexpected kind: %d", curSlot.typeData.Kind))
 	}
 
 	curFrame = entering
@@ -300,6 +310,8 @@ unwind:
 			// This switch statement is the inverse of the above. We'll fold the
 			// returning frame into a replacement value for the current slot.
 			switch curSlot.typeData.Kind {
+			case KindOpaque:
+				// We don't need to do anything with opaque values.
 			case KindStruct:
 				// Allocate a replacement instance of the struct.
 				next := curSlot.typeData.NewStruct()
@@ -381,7 +393,7 @@ func (e *Engine) Stringify(id TypeID) string {
 	td := e.typeData(id)
 	for {
 		switch td.Kind {
-		case KindInterface, KindStruct:
+		case KindInterface, KindOpaque, KindStruct:
 			if ret.Len() == 0 {
 				return td.Name
 			}

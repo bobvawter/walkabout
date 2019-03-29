@@ -30,6 +30,7 @@ type Traversable interface {
 	// Declaration returns the source-code declaration for the node, which
 	// may be nil if the underlying type of the traversable isn't named.
 	Declaration() types.Object
+	String() string
 
 	// withDeclaration returns a copy of the Traversable
 	withDeclaration(types.Object) Traversable
@@ -97,6 +98,7 @@ func resolve(t Traversable) Traversable {
 }
 
 func (l *lazy) Declaration() types.Object { return l.decl }
+func (l *lazy) String() string            { return l.resolve().String() }
 
 func (l *lazy) withDeclaration(decl types.Object) Traversable {
 	return l.resolve().withDeclaration(decl)
@@ -165,7 +167,7 @@ type Struct struct {
 func (s *Struct) Declaration() types.Object { return s.decl }
 
 // Fields returns the fields defined by the struct.
-func (s *Struct) Fields(into []*Field) []*Field { return append(into, s.fields...) }
+func (s *Struct) Fields() []*Field { return append(s.fields[:0:0], s.fields...) }
 
 // withDeclaration implements Traversable.
 func (s *Struct) withDeclaration(decl types.Object) Traversable {
@@ -182,6 +184,9 @@ type Opaque struct {
 // Declaration implements Traversable.
 func (o *Opaque) Declaration() types.Object { return o.decl }
 
+// Fields exists to make Opaque implement a similar API to Struct.
+func (o *Opaque) Fields() []*Field { return nil }
+
 // withDeclaration implements Traversable.
 func (o *Opaque) withDeclaration(decl types.Object) Traversable {
 	ret := *o
@@ -191,11 +196,13 @@ func (o *Opaque) withDeclaration(decl types.Object) Traversable {
 
 // A Union represents a synthetic union interface.
 type Union struct {
-	name string
+	decl      types.Object
+	name      string
+	reachable bool
 }
 
-// Declaration always returns nil because the Union interface is synthetic.
-func (u *Union) Declaration() types.Object { return nil }
+// Declaration implements Traversable.
+func (u *Union) Declaration() types.Object { return u.decl }
 
 // withDeclaration is a no-op for Union.
 func (u *Union) withDeclaration(types.Object) Traversable { return u }

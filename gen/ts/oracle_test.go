@@ -50,21 +50,13 @@ func TestOracle(t *testing.T) {
 	a.Len(pkgs, 1)
 
 	pkg := pkgs[0].Types
-	o := NewOracle(pkg)
+	o := NewOracle([]*types.Scope{pkg.Scope()})
 
-	var target *Interface
-	for _, name := range pkg.Scope().Names() {
-		if found, ok := o.Get(pkg.Scope().Lookup(name).Type()); ok {
-			if name == "Target" {
-				target = found.(*Interface)
-			}
-		}
-	}
+	target, _ := o.Get(pkg.Scope().Lookup("Target").Type())
 	if !a.NotNil(target) {
 		return
 	}
-
-	visitable := o.VisitableFrom(target)
+	visitable := o.VisitableFrom(NewTraversableSet(target))
 
 	tcs := map[string]*testCase{
 		"*ByRefType": {

@@ -16,40 +16,43 @@
 package ts
 
 import (
+	"go/token"
 	"go/types"
-	"sort"
 )
 
 // Oracle holds typesystem information.
 type Oracle struct {
 	// We store nil values if a type isn't handled.
 	data map[types.Type]Traversable
-	pkg  *types.Package
+	// We limit Traversable creation to types defined within these scopes.
+	scopes map[*types.Scope]bool
+	union  *Union
 
 	// See discussion in Get() for why these maps exist.
 	ptrsTo   map[types.Type]Traversable
 	slicesOf map[types.Type]Traversable
 }
 
-// NewOracle constructs a new Oracle instance.
-func NewOracle(pkg *types.Package) *Oracle {
-	return &Oracle{
+// NewOracle constructs a new Oracle instance from the types defined
+// within the given package.
+func NewOracle(scopes []*types.Scope) *Oracle {
+	scopeMap := make(map[*types.Scope]bool, len(scopes))
+	o := &Oracle{
 		data:     make(map[types.Type]Traversable),
-		pkg:      pkg,
+		scopes:   scopeMap,
 		ptrsTo:   make(map[types.Type]Traversable),
 		slicesOf: make(map[types.Type]Traversable),
 	}
-}
-
-// All returns all traversable types.
-func (o *Oracle) All() []Traversable {
-	var ret []Traversable
-	for _, t := range o.data {
-		if t != nil {
-			ret = append(ret, t)
+	for _, scope := range scopes {
+		scopeMap[scope] = true
+		for _, name := range scope.Names() {
+			obj := scope.Lookup(name)
+			if decl, ok := obj.(*types.TypeName); ok {
+				o.Get(decl.Type())
+			}
 		}
 	}
-	return ret
+	return o
 }
 
 // Get creates or returns a Traversable that hold extracted information
@@ -92,9 +95,9 @@ func (o *Oracle) Get(typ types.Type) (_ Traversable, ok bool) {
 	switch t := typ.(type) {
 	case *types.Named:
 		// We only want to consider exported types that are defined within the
-		// target package.
+		// target scopes.
 		decl := t.Obj()
-		if !decl.Exported() || decl.Pkg() != o.pkg {
+		if !decl.Exported() || !o.scopes[decl.Parent()] {
 			record(nil)
 			return nil, false
 		}
@@ -156,22 +159,33 @@ func (o *Oracle) Get(typ types.Type) (_ Traversable, ok bool) {
 	}
 }
 
+// Union constructs a synthetic union-interface type.
+func (o *Oracle) Union(pkg *types.Package, name string, reachable bool) *Union {
+	if o.union != nil {
+		return o.union
+	}
+	o.union = &Union{
+		decl:      types.NewTypeName(token.NoPos, pkg, name, types.NewInterfaceType(nil, nil)),
+		reachable: reachable,
+		name:      name,
+	}
+	return o.union
+}
+
 // VisitableFrom returns the declared types which should be considered
 // visitable from any of the declared seed types. Whether or not a type
 // is visitable is approximately equal to asking whether or not it is
 // assignable, with the caveat that this method will consider pointer
 // receivers for interface types. There is also special handling for
 // a synthetic union interface (represented by *Union).
-//
-// The returned slice will be returned with stable ordering.
-func (o *Oracle) VisitableFrom(seeds ...Traversable) []Traversable {
+func (o *Oracle) VisitableFrom(seeds TraversableSet) TraversableSet {
 	seedSet := make(map[types.Object]bool)
 	intfs := make(map[*types.Interface]bool)
-	isUnion := false
+	isReachable := false
 
-	for _, s := range seeds {
-		if _, ok := s.(*Union); ok {
-			isUnion = true
+	for s := range seeds {
+		if u, ok := s.(*Union); ok {
+			isReachable = isReachable || u.reachable
 		}
 		if decl := s.Declaration(); decl != nil {
 			seedSet[decl] = true
@@ -181,7 +195,7 @@ func (o *Oracle) VisitableFrom(seeds ...Traversable) []Traversable {
 		}
 	}
 
-	temp := make(map[Traversable]bool)
+	ret := NewTraversableSet()
 	for _, t := range o.data {
 		if t == nil {
 			continue
@@ -190,34 +204,23 @@ func (o *Oracle) VisitableFrom(seeds ...Traversable) []Traversable {
 		if decl == nil {
 			continue
 		}
-		if isUnion {
-			temp[t] = true
+		if isReachable {
+			ret.Add(t)
 		} else if seedSet[decl] {
-			temp[t] = true
+			ret.Add(t)
 		} else {
 			for intf := range intfs {
 				if types.Implements(decl.Type(), intf) {
-					temp[t] = true
+					ret.Add(t)
 					break
 				} else if ptr := types.NewPointer(decl.Type()); types.Implements(ptr, intf) {
 					found, _ := o.Get(ptr)
-					temp[found] = true
+					ret.Add(found)
 					break
 				}
 			}
 		}
 	}
-
-	ret := make([]Traversable, len(temp))
-	idx := 0
-	for t := range temp {
-		ret[idx] = t
-		idx++
-	}
-
-	sort.Slice(ret, func(i, j int) bool {
-		return QualifiedName("", ret[i]) < QualifiedName("", ret[j])
-	})
 
 	return ret
 }

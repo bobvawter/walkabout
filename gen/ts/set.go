@@ -27,6 +27,17 @@ func NewTraversableSet(values ...Traversable) TraversableSet {
 	return ret
 }
 
+// Add ensures that the set contains the given type.
+func (s TraversableSet) Add(t Traversable) {
+	s[t] = struct{}{}
+}
+
+// Contains returns true if the type is present in the set.
+func (s TraversableSet) Contains(t Traversable) bool {
+	_, found := s[t]
+	return found
+}
+
 // ShouldTraverse returns true if any of the set's types
 // are reachable from the given origin type. This function does not
 // take assignability into account, so the set of visitable types
@@ -41,10 +52,10 @@ func (s TraversableSet) shouldTraverse(seen TraversableSet, origin Traversable) 
 	}
 
 	// Prevent cycles.
-	if _, ok := seen[origin]; ok {
+	if seen.Contains(origin) {
 		return false
 	}
-	seen[origin] = struct{}{}
+	seen.Add(origin)
 
 	switch t := origin.(type) {
 	case Elementary:

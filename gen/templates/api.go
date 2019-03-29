@@ -17,24 +17,22 @@ package templates
 
 func init() {
 	TemplateSources["10api"] = `
-{{- $v := . -}}
-{{- $Abstract := T $v "Abstract" -}}
-{{- $Action := T $v "Action" -}}
-{{- $ChildAt := T $v "At" -}}
-{{- $Context := T $v "Context" -}}
-{{- $Decision := T $v "Decision" -}}
-{{- $identify := t $v "Identify" -}}
-{{- $NumChildren := T $v "Count" -}}
-{{- $Root := $v.Root -}}
-{{- $TypeID := T $v "TypeID" -}}
-{{- $WalkerFn := T $v "WalkerFn" -}}
-{{- $wrap := t $v "Wrap" -}}
+{{- $Abstract := T "Abstract" -}}
+{{- $Action := T "Action" -}}
+{{- $ChildAt := T "At" -}}
+{{- $Context := T  "Context" -}}
+{{- $Decision := T  "Decision" -}}
+{{- $identify := t  "Identify" -}}
+{{- $NumChildren := T  "Count" -}}
+{{- $TypeID := T "TypeID" -}}
+{{- $WalkerFn := T "WalkerFn" -}}
+{{- $wrap := t "Wrap" -}}
 // ------ API and public types ------
 
 // {{ $TypeID }} is a lightweight type token.
 type {{ $TypeID }} e.TypeID
 
-// {{ $Abstract }} allows users to treat a {{ $Root }} as an abstract
+// {{ $Abstract }} allows users to treat a {{ Root }} as an abstract
 // tree of nodes. All visitable struct types will have generated methods
 // which implement this interface. 
 type {{ $Abstract }} interface {
@@ -53,13 +51,13 @@ type {{ $Abstract }} interface {
 }
 
 var (
-{{- range $s := Structs $v -}}
+{{- range $s := Instantiable -}}
 _ {{ $Abstract }} = &{{ $s }}{};
 {{- end -}}
 )
 
 // {{ $WalkerFn }} is used to implement a visitor pattern over
-// types which implement {{ $Root }}.
+// types which implement {{ Root }}.
 //
 // Implementations of this function return a {{ $Decision }}, which
 // allows the function to control traversal. The zero value of
@@ -68,7 +66,7 @@ _ {{ $Abstract }} = &{{ $s }}{};
 //
 // A {{ $Decision }} can also specify a post-visit function to execute
 // or can be used to replace the value being visited.
-type {{ $WalkerFn }} func(ctx {{ $Context }}, x {{ $Root }}) {{ $Decision }}
+type {{ $WalkerFn }} func(ctx {{ $Context }}, x {{ Root }}) {{ $Decision }}
 
 // {{ $Context }} is provided to {{ $WalkerFn }} and acts as a factory
 // for constructing {{ $Decision }} instances.
@@ -140,38 +138,38 @@ func (d {{ $Decision }}) Post(fn {{ $WalkerFn }}) {{ $Decision }} {
 
 // Replace allows the currently-visited value to be replaced. All
 // parent nodes will be cloned.
-func (d {{ $Decision }}) Replace(x {{ $Root }}) {{ $Decision }} {
+func (d {{ $Decision }}) Replace(x {{ Root }}) {{ $Decision }} {
 	return {{ $Decision }}((e.Decision)(d).Replace({{ $identify }}(x)))
 }
 
-// {{ $identify }} is a utility function to map a {{ $Root }} into
+// {{ $identify }} is a utility function to map a {{ Root }} into
 // its generated type id and a pointer to the data. 
-func {{ $identify }}(x {{ $Root }}) (typeId e.TypeID, data e.Ptr) {
+func {{ $identify }}(x {{ Root }}) (typeId e.TypeID, data e.Ptr) {
 	switch t := x.(type) {
-		{{ range $imp := Implementors $Root -}}
-		case {{ $imp.Actual }}:
-			typeId = e.TypeID({{ TypeID $imp.Underlying }});
-			{{ if IsPointer $imp.Actual }}data = e.Ptr(t);
+		{{ range $imp := VisitableFrom Root -}}
+		case {{ $imp }}:
+			typeId = e.TypeID({{ TypeID $imp }});
+			{{ if IsPointer $imp }}data = e.Ptr(t);
 			{{ else }}data = e.Ptr(&t);
 			{{ end }}
 		{{- end -}}
 		default:
 			// The most probable reason for this is that the generated code
-			// is out of date, or that an implementation of the {{ $Root }}
+			// is out of date, or that an implementation of the {{ Root }}
 			// interface from another package is being passed in.
 			panic(fmt.Sprintf("unhandled value of type: %T", x))
 	}
 	return
 }
 
-// {{ $wrap }} is a utility function to reconstitute a {{ $Root }}
+// {{ $wrap }} is a utility function to reconstitute a {{ Root }}
 // from an internal type token and a pointer to the value.
-func {{ $wrap }}(typeId e.TypeID, x e.Ptr) {{ $Root }} {
+func {{ $wrap }}(typeId e.TypeID, x e.Ptr) {{ Root }} {
 	switch {{ $TypeID }}(typeId) {
-	{{ range $imp := Implementors $Root -}}
-		{{- if IsPointer $imp.Actual -}}
-			case {{ TypeID $imp.Actual.Elem }}: return (*{{ $imp.Actual.Elem }})(x);
-			case {{ TypeID $imp.Actual }}: return *(*{{ $imp.Actual }})(x);
+	{{ range $imp := Declared -}}
+		{{- if IsPointer $imp -}}
+			case {{ TypeID $imp.Elem }}: return (*{{ $imp.Elem }})(x);
+			case {{ TypeID $imp }}: return *(*{{ $imp }})(x);
 		{{- end -}}
 	{{- end }}
 	default:
@@ -185,7 +183,7 @@ func {{ $wrap }}(typeId e.TypeID, x e.Ptr) {{ $Root }} {
 type {{ $Action }} e.Action
 
 // ActionVisit constructs a {{ $Action }} that will visit the given value.
-func (c *{{ $Context }}) ActionVisit(x {{ $Root }}) {{ $Action }} {
+func (c *{{ $Context }}) ActionVisit(x {{ Root }}) {{ $Action }} {
 	return {{ $Action }} (c.impl.ActionVisitTypeID({{ $identify }}(x)))
 }
 

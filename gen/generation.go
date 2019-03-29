@@ -20,6 +20,9 @@ import (
 	"go/types"
 	"io"
 	"os"
+	"strings"
+
+	"github.com/cockroachdb/walkabout/gen/ts"
 
 	"github.com/pkg/errors"
 	"golang.org/x/tools/go/packages"
@@ -86,33 +89,77 @@ func (g *generation) Execute() error {
 		return err
 	}
 
-	v := &visitation{
-		gen:              g,
-		includeReachable: g.config.reachable,
-		packagePath:      pkgs[0].PkgPath,
-		Types:            make(map[TypeID]visitableType),
-		SourceTypes:      make(map[SourceName]visitableType),
-	}
-	g.visitation = v
-
-	// Synthesize a union interface, if configured.
-	if g.config.union != "" {
-		v.Root = namedInterfaceType{
-			Union: g.union,
-			v:     v,
+	scopes := make([]*types.Scope, len(pkgs))
+	test := false
+	for i, pkg := range pkgs {
+		scope := pkg.Types.Scope()
+		scopes[i] = scope
+		pos := g.fileSet.Position(scope.Pos())
+		if strings.HasSuffix(pos.Filename, "_test.go") {
+			test = true
 		}
 	}
 
-	scopes := make([]*types.Scope, len(pkgs))
-	for idx, pkg := range pkgs {
-		scopes[idx] = pkg.Types.Scope()
+	// Initialize the type collection.
+	o := ts.NewOracle(scopes)
+
+	// Locate the seed types.
+	var root ts.Traversable
+	seeds := ts.NewTraversableSet()
+name:
+	for _, name := range g.typeNames {
+		for _, scope := range scopes {
+			obj := scope.Lookup(name)
+			if obj == nil {
+				continue
+			}
+			if found, ok := o.Get(obj.Type()); ok {
+				seeds.Add(found)
+				// There will be only one in a non-union situation, otherwise
+				// this will be replaced below
+				root = found
+				continue name
+			}
+		}
+		return errors.Errorf("unknown type %q", name)
 	}
 
-	if err := v.findSeedTypes(scopes); err != nil {
-		return err
+	if g.config.union != "" {
+		root = o.Union(pkgs[0].Types, g.config.union, g.config.reachable)
 	}
-	v.populateGeneratedTypes(scopes)
-	return v.generateAPI()
+
+	return g.generateAPI(o, root, seeds, test)
+
+	/*
+		v := &visitation{
+			gen:              g,
+			includeReachable: g.config.reachable,
+			packagePath:      pkgs[0].PkgPath,
+			Types:            make(map[TypeID]visitableType),
+			SourceTypes:      make(map[SourceName]visitableType),
+		}
+		g.visitation = v
+
+		// Synthesize a union interface, if configured.
+		if g.config.union != "" {
+			v.Root = namedInterfaceType{
+				Union: g.union,
+				v:     v,
+			}
+		}
+
+		scopes := make([]*types.Scope, len(pkgs))
+		for idx, pkg := range pkgs {
+			scopes[idx] = pkg.Types.Scope()
+		}
+
+		if err := v.findSeedTypes(scopes); err != nil {
+			return err
+		}
+		v.populateGeneratedTypes(scopes)
+		return v.generateAPI()
+	*/
+	return nil
 }
 
 func (g *generation) packageConfig() *packages.Config {

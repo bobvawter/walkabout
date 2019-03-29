@@ -17,23 +17,21 @@ package templates
 
 func init() {
 	TemplateSources["50union"] = `
-{{- $v := . -}}
-{{- $Union := $v.Root.Union -}}
-{{- if $Union -}}
+{{- if IsUnion Root -}}
 // ------ Union Support -----
-type {{ $Union }} interface {
-	{{ $Union }}Abstract
-	is{{ $Union }}Type()
+type {{ Root }} interface {
+	{{ Root }}Abstract
+	is{{ Root }}Type()
 }
 
 var (
-{{- range $s := Structs $v }}
-	_ {{ $Union }} = &{{ $s }}{}
+{{- range $s := Declared }}
+	_ {{ Root }} = &{{ $s }}{}
 {{- end -}}
 )
 
-{{- range $s := Structs $v }}
-func (*{{ $s }}) is{{ $Union }}Type() {}
+{{- range $s := Declared  }}
+func (*{{ $s }}) is{{ Root }}Type() {}
 {{- end -}}
 {{- end -}}
 `

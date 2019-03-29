@@ -17,23 +17,22 @@ package templates
 
 func init() {
 	TemplateSources["75typemap"] = `
-{{- $v := . -}}
-{{- $Context := T $v "Context" -}}
-{{- $Engine := t $v "Engine" -}}
-{{- $TypeID := T $v "TypeID" -}}
-{{- $WalkerFn := T $v "WalkerFn" -}}
+{{- $Context := T "Context" -}}
+{{- $Engine := t "Engine" -}}
+{{- $TypeID := T "TypeID" -}}
+{{- $WalkerFn := T "WalkerFn" -}}
 // ------ Type Mapping ------
 var {{ $Engine }} = e.New(e.TypeMap {
 // ------ Structs ------
-{{ range $s := Structs $v }}{{ TypeID $s }}: {
+{{ range $s := Structs  }}{{ TypeID $s }}: {
 	Copy: func(dest, from e.Ptr) { *(*{{ $s }})(dest) = *(*{{ $s }})(from) },
 	Facade: func(impl e.Context, fn e.FacadeFn, x e.Ptr) e.Decision {
 		return e.Decision(fn.({{ $WalkerFn }})({{ $Context }}{impl}, (*{{ $s }})(x)))
 	},
 	Fields: []e.FieldInfo {
-		{{ range $f := $s.Fields -}}
-		{ Name: "{{ $f }}", Offset: unsafe.Offsetof({{ $s }}{}.{{ $f }}), Target: e.TypeID({{ TypeID $f.Target }})},
-		{{ end }}
+		{{ range $f := $s.Fields -}}{{- if ShouldTraverse $f }}
+		{ Name: "{{ $f }}", Offset: unsafe.Offsetof({{ $s }}{}.{{ $f }}), Target: e.TypeID({{ TypeID $f.Elem }})},
+		{{- end -}}{{ end }}
 	},
 	Name: "{{ $s }}",
 	NewStruct: func() e.Ptr { return e.Ptr(&{{ $s }}{}) },
@@ -43,15 +42,15 @@ var {{ $Engine }} = e.New(e.TypeMap {
 },
 {{ end }}
 // ------ Interfaces ------
-{{ range $s := Intfs $v }}{{ TypeID $s }}: {
+{{ range $s := Intfs }}{{ TypeID $s }}: {
 	Copy: func(dest, from e.Ptr) {
 		*(*{{ $s }})(dest) = *(*{{ $s }})(from)
 	},
 	IntfType: func(x e.Ptr) e.TypeID {
 		d := *(*{{ $s }})(x)
 		switch d.(type) {
-		{{ range $imp := Implementors $s -}}
-		case {{ $imp.Actual }}: return e.TypeID({{ TypeID $imp.Underlying }});
+		{{ range $imp := VisitableFrom $s -}}
+		case {{ $imp }}: return e.TypeID({{ TypeID $imp }});
 		{{- end }}
 		default:
 			return 0
@@ -60,10 +59,10 @@ var {{ $Engine }} = e.New(e.TypeMap {
 	IntfWrap: func(id e.TypeID, x e.Ptr) e.Ptr {
 		var d {{ $s }}
 		switch {{ $TypeID }}(id) {
-		{{ range $imp := Implementors $s -}}
-			{{- if IsPointer $imp.Actual -}}
-				case {{ TypeID $imp.Actual.Elem }}: d = (*{{ $imp.Actual.Elem }})(x);
-				case {{ TypeID $imp.Actual }}: d = *(*{{ $imp.Actual }})(x);
+		{{ range $imp := VisitableFrom $s -}}
+			{{- if IsPointer $imp -}}
+				case {{ TypeID $imp.Elem }}: d = (*{{ $imp.Elem }})(x);
+				case {{ TypeID $imp }}: d = *(*{{ $imp }})(x);
 			{{- end -}}
 		{{- end }}
 		default:
@@ -78,7 +77,7 @@ var {{ $Engine }} = e.New(e.TypeMap {
 },
 {{ end }}
 // ------ Pointers ------
-{{ range $s := Pointers $v }}{{ TypeID $s }}: {
+{{ range $s := Pointers }}{{ TypeID $s }}: {
 	Copy: func(dest, from e.Ptr) {
 		*(*{{ $s }})(dest) = *(*{{ $s }})(from)
 	},
@@ -89,7 +88,7 @@ var {{ $Engine }} = e.New(e.TypeMap {
 },
 {{ end }}
 // ------ Slices ------
-{{ range $s := Slices $v }}{{ TypeID $s }}: {
+{{ range $s := Slices }}{{ TypeID $s }}: {
 	Copy: func(dest, from e.Ptr) {
 		*(*{{ $s }})(dest) = *(*{{ $s }})(from)
 	},
@@ -103,12 +102,23 @@ var {{ $Engine }} = e.New(e.TypeMap {
 	TypeID: e.TypeID({{ TypeID $s }}),
 },
 {{ end }}
+// ------ Opaque ------
+{{ range $s := Opaques }}{{ TypeID $s }}: {
+	Copy: func(dest, from e.Ptr) {
+		*(*{{ $s }})(dest) = *(*{{ $s }})(from)
+	},
+	Kind: e.KindOpaque,
+	Name: "{{ $s }}",
+	SizeOf: unsafe.Sizeof(({{ $s }})(nil)),
+	TypeID: e.TypeID({{ TypeID $s }}),
+},
+{{ end }}
 })
 
 // These are lightweight type tokens. 
 const (
-	_ {{ T $v "TypeID" }} = iota
-{{ range $t := $v.Types }}{{ TypeID $t }};{{ end }}
+	_ {{ T "TypeID" }} = iota
+{{ range $t := AllTypes }}{{ TypeID $t }};{{ end }}
 )
 
 // String is for debugging use only.

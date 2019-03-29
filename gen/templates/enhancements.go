@@ -17,17 +17,15 @@ package templates
 
 func init() {
 	TemplateSources["50enhancements"] = `
-{{- $v := . -}}
-{{- $abstract := t $v "Abstract" -}}
-{{- $Abstract := T $v "Abstract" -}}
-{{- $ChildAt := T $v "At" -}}
-{{- $Engine := t $v "Engine" -}}
-{{- $NumChildren := T $v "Count" -}}
-{{- $identify := t $v "Identify" -}}
-{{- $Root := $v.Root -}}
-{{- $TypeID := T $v "TypeID" -}}
-{{- $WalkerFn := T $v "WalkerFn" -}}
-{{- $wrap := t $v "Wrap" -}}
+{{- $abstract := t "Abstract" -}}
+{{- $Abstract := T "Abstract" -}}
+{{- $ChildAt := T "At" -}}
+{{- $Engine := t "Engine" -}}
+{{- $NumChildren := T "Count" -}}
+{{- $identify := t "Identify" -}}
+{{- $TypeID := T "TypeID" -}}
+{{- $WalkerFn := T "WalkerFn" -}}
+{{- $wrap := t "Wrap" -}}
 
 // ------ Type Enhancements ------
 
@@ -44,7 +42,7 @@ func (a *{{ $abstract }}) {{ $ChildAt }}(index int) (ret {{ $Abstract }}) {
 		return nil
 	}
 	switch {{ $TypeID }}(impl.TypeID()) {
-	{{ range $s := Structs $v -}}
+	{{ range $s := Declared -}}
 	case {{ TypeID $s }}: ret = (*{{ $s }})(impl.Ptr());
 	case {{ TypeID $s }}Ptr: ret = *(**{{ $s }})(impl.Ptr());
 	{{- end }}
@@ -64,21 +62,26 @@ func (a *{{ $abstract }}) {{ $TypeID }}() {{ $TypeID }} {
 	return {{ $TypeID }}(a.delegate.TypeID())
 }
 
-{{ range $s := Structs $v }}
+{{ range $s := Instantiable }}
 // {{ $ChildAt }} implements {{ $Abstract }}.
 func (x *{{ $s }}) {{ $ChildAt }}(index int) {{ $Abstract }} {
 	self := {{ $abstract }}{ {{ $Engine }}.Abstract(e.TypeID({{ TypeID $s }}), e.Ptr(x)) }
 	return self.{{ $ChildAt }}(index)
 }
 
-// {{ $NumChildren }} returns {{ len $s.Fields }}.
-func (x *{{ $s }}) {{ $NumChildren }}() int { return {{ len $s.Fields }} }
+{{ if $struct := IsStruct $s }}
+// {{ $NumChildren }} returns {{ len $struct.Fields }}.
+func (x *{{ $struct }}) {{ $NumChildren }}() int { return {{ len $struct.Fields }} }
+{{ else }}
+// {{ $NumChildren }} returns 0.
+func (x *{{ $s }}) {{ $NumChildren }}() int { return 0 }
+{{ end }}
 
 // {{ $TypeID }} returns {{ TypeID $s }}.
 func (*{{ $s }}) {{ $TypeID }}() {{ $TypeID }} { return {{ TypeID $s }} }
 
-// Walk{{ $Root }} visits the receiver with the provided callback. 
-func (x *{{ $s }}) Walk{{ $Root }}(fn {{ $WalkerFn }}) (_ *{{ $s }}, changed bool, err error) {
+// Walk{{ Root }} visits the receiver with the provided callback. 
+func (x *{{ $s }}) Walk{{ Root }}(fn {{ $WalkerFn }}) (_ *{{ $s }}, changed bool, err error) {
 	var y e.Ptr
 	_, y, changed, err = {{ $Engine }}.Execute(fn, e.TypeID({{ TypeID $s }}), e.Ptr(x), e.TypeID({{ TypeID $s }}))
 	if err != nil {
@@ -88,10 +91,10 @@ func (x *{{ $s }}) Walk{{ $Root }}(fn {{ $WalkerFn }}) (_ *{{ $s }}, changed boo
 }
 {{ end }}
 
-// Walk{{ $Root }} visits the receiver with the provided callback. 
-func Walk{{ $Root }}(x {{ $Root }}, fn {{ $WalkerFn }}) (_ {{ $Root }}, changed bool, err error) {
+// Walk{{ Root }} visits the receiver with the provided callback. 
+func Walk{{ Root }}(x {{ Root }}, fn {{ $WalkerFn }}) (_ {{ Root }}, changed bool, err error) {
   id, ptr := {{ $identify }}(x)
-	id, ptr, changed, err = {{ $Engine }}.Execute(fn, id, ptr, e.TypeID({{ TypeID $Root }}))
+	id, ptr, changed, err = {{ $Engine }}.Execute(fn, id, ptr, e.TypeID({{ TypeID Root }}))
 	if err != nil {
 		return nil, false, err
 	}
