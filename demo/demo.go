@@ -39,6 +39,7 @@ var (
 	_ Target = ByValType{}
 	_ Target = &ContainerType{}
 	_ Target = &ignoredType{}
+	_ Target = &Targets{}
 )
 
 // EmbedsTarget demonstrates an interface hierarchy.

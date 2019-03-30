@@ -16,21 +16,15 @@
 package ts
 
 import (
-	"go/token"
 	"go/types"
 )
 
 // Oracle holds typesystem information.
 type Oracle struct {
 	// We store nil values if a type isn't handled.
-	data map[types.Type]Traversable
+	data map[types.Type]*T
 	// We limit Traversable creation to types defined within these scopes.
 	scopes map[*types.Scope]bool
-	union  *Union
-
-	// See discussion in Get() for why these maps exist.
-	ptrsTo   map[types.Type]Traversable
-	slicesOf map[types.Type]Traversable
 }
 
 // NewOracle constructs a new Oracle instance from the types defined
@@ -38,10 +32,8 @@ type Oracle struct {
 func NewOracle(scopes []*types.Scope) *Oracle {
 	scopeMap := make(map[*types.Scope]bool, len(scopes))
 	o := &Oracle{
-		data:     make(map[types.Type]Traversable),
-		scopes:   scopeMap,
-		ptrsTo:   make(map[types.Type]Traversable),
-		slicesOf: make(map[types.Type]Traversable),
+		data:   make(map[types.Type]*T),
+		scopes: scopeMap,
 	}
 	for _, scope := range scopes {
 		scopeMap[scope] = true
@@ -55,12 +47,24 @@ func NewOracle(scopes []*types.Scope) *Oracle {
 	return o
 }
 
+// All returns all types known to the Oracle.
+func (o *Oracle) All() []*T {
+	ret := make([]*T, 0, len(o.data))
+	for _, v := range o.data {
+		if v.IsIgnored() {
+			continue
+		}
+		ret = append(ret, v)
+	}
+	return ret
+}
+
 // Get creates or returns a Traversable that hold extracted information
 // about the given type.
-func (o *Oracle) Get(typ types.Type) (_ Traversable, ok bool) {
+func (o *Oracle) Get(typ types.Type) *T {
 	// Simple case.
 	if found, ok := o.data[typ]; ok {
-		return found, found != nil
+		return found
 	}
 	// This is a hack to improve developer convenience. When we get
 	// instances of types.Type from the type-checker, they've all been
@@ -69,27 +73,10 @@ func (o *Oracle) Get(typ types.Type) (_ Traversable, ok bool) {
 	// obvious thing and call Oracle.Get(types.NewPointer(someType)) and
 	// be guaranteed to receive the same instance each time.
 	if ptr, ok := typ.(*types.Pointer); ok {
-		if found, ok := o.ptrsTo[ptr.Elem()]; ok {
-			return found, found != nil
-		}
+		return o.Get(ptr.Elem()).PointerTo()
 	}
 	if sl, ok := typ.(*types.Slice); ok {
-		if found, ok := o.slicesOf[sl.Elem()]; ok {
-			return found, found != nil
-		}
-	}
-
-	// We need to record the return value in the map before recursing
-	// in order to handle cyclical types. This function will be called
-	// with a nil value if it is determined that a type is unsupported.
-	record := func(t Traversable) {
-		o.data[typ] = t
-		if ptr, ok := typ.(*types.Pointer); ok {
-			o.ptrsTo[ptr.Elem()] = t
-		}
-		if sl, ok := typ.(*types.Slice); ok {
-			o.slicesOf[sl.Elem()] = t
-		}
+		return o.Get(sl.Elem()).SliceOf()
 	}
 
 	switch t := typ.(type) {
@@ -98,129 +85,43 @@ func (o *Oracle) Get(typ types.Type) (_ Traversable, ok bool) {
 		// target scopes.
 		decl := t.Obj()
 		if !decl.Exported() || !o.scopes[decl.Parent()] {
-			record(nil)
-			return nil, false
+			o.data[typ] = ignoredT
+			return ignoredT
 		}
-		record(&lazy{decl: decl, oracle: o})
-		if under, ok := o.Get(decl.Type().Underlying()); ok {
-			ret := under.withDeclaration(decl)
-			record(ret)
-			return ret, true
-		}
-		record(nil)
-		return nil, false
+		ret := &T{declaration: decl}
+		o.data[typ] = ret
+
+		under := o.Get(decl.Type().Underlying())
+		ret.traversable = under.traversable
+		return ret
 
 	case *types.Interface:
-		ret := &Interface{}
-		record(ret)
-		return ret, true
-
-	case *types.Pointer:
-		ret := &Pointer{}
-		record(ret)
-		if elem, ok := o.Get(t.Elem()); ok {
-			ret.elem = elem
-			return ret, true
-		}
-		record(nil)
-		return nil, false
-
-	case *types.Slice:
-		ret := &Slice{}
-		record(ret)
-		if elem, ok := o.Get(t.Elem()); ok {
-			ret.elem = elem
-			return ret, true
-		}
-		record(nil)
-		return nil, false
+		ret := &T{traversable: &Traversable{kind: Interface}}
+		o.data[typ] = ret
+		return ret
 
 	case *types.Struct:
-		ret := &Struct{
-			fields: make([]*Field, 0, t.NumFields()),
-		}
-		record(ret)
+		ret := &T{}
+		o.data[typ] = ret
 
+		fields := make(map[string]*T, t.NumFields())
 		for i, j := 0, t.NumFields(); i < j; i++ {
 			f := t.Field(i)
 			if !f.Exported() {
 				continue
 			}
-			if elem, ok := o.Get(f.Type()); ok {
-				ret.fields = append(ret.fields, &Field{decl: f, elem: elem})
+			if field := o.Get(f.Type()); !field.IsIgnored() {
+				fields[f.Name()] = field
 			}
 		}
-		return ret, true
+		ret.traversable = &Traversable{
+			fields: fields,
+			kind:   Struct,
+		}
+		return ret
 
 	default:
-		ret := &Opaque{}
-		record(ret)
-		return ret, true
+		o.data[typ] = ignoredT
+		return ignoredT
 	}
-}
-
-// Union constructs a synthetic union-interface type.
-func (o *Oracle) Union(pkg *types.Package, name string, reachable bool) *Union {
-	if o.union != nil {
-		return o.union
-	}
-	o.union = &Union{
-		decl:      types.NewTypeName(token.NoPos, pkg, name, types.NewInterfaceType(nil, nil)),
-		reachable: reachable,
-		name:      name,
-	}
-	return o.union
-}
-
-// VisitableFrom returns the declared types which should be considered
-// visitable from any of the declared seed types. Whether or not a type
-// is visitable is approximately equal to asking whether or not it is
-// assignable, with the caveat that this method will consider pointer
-// receivers for interface types. There is also special handling for
-// a synthetic union interface (represented by *Union).
-func (o *Oracle) VisitableFrom(seeds TraversableSet) TraversableSet {
-	seedSet := make(map[types.Object]bool)
-	intfs := make(map[*types.Interface]bool)
-	isReachable := false
-
-	for s := range seeds {
-		if u, ok := s.(*Union); ok {
-			isReachable = isReachable || u.reachable
-		}
-		if decl := s.Declaration(); decl != nil {
-			seedSet[decl] = true
-			if intf, ok := decl.Type().Underlying().(*types.Interface); ok {
-				intfs[intf] = true
-			}
-		}
-	}
-
-	ret := NewTraversableSet()
-	for _, t := range o.data {
-		if t == nil {
-			continue
-		}
-		decl := t.Declaration()
-		if decl == nil {
-			continue
-		}
-		if isReachable {
-			ret.Add(t)
-		} else if seedSet[decl] {
-			ret.Add(t)
-		} else {
-			for intf := range intfs {
-				if types.Implements(decl.Type(), intf) {
-					ret.Add(t)
-					break
-				} else if ptr := types.NewPointer(decl.Type()); types.Implements(ptr, intf) {
-					found, _ := o.Get(ptr)
-					ret.Add(found)
-					break
-				}
-			}
-		}
-	}
-
-	return ret
 }

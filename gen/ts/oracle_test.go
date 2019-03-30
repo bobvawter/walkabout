@@ -13,24 +13,25 @@
 // permissions and limitations under the License. See the AUTHORS file
 // for names of contributors.
 
-package ts
+package ts_test
 
 import (
 	"go/types"
 	"sort"
 	"testing"
 
+	"github.com/cockroachdb/walkabout/gen/ts"
+
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/tools/go/packages"
 )
 
 type testCase struct {
-	declName          string
-	element           *testCase
-	expectedType      Traversable
-	found             Traversable
-	totalFields       int
-	traversableFields []string
+	ActionableFields []string
+	Elem             *testCase
+	FieldChecks      map[string]*testCase
+	Name             string
+	Kind             ts.Kind
 }
 
 // TestOracle will load our dummy source and verify that the typesystem
@@ -50,114 +51,104 @@ func TestOracle(t *testing.T) {
 	a.Len(pkgs, 1)
 
 	pkg := pkgs[0].Types
-	o := NewOracle([]*types.Scope{pkg.Scope()})
+	o := ts.NewOracle([]*types.Scope{pkg.Scope()})
 
-	target, _ := o.Get(pkg.Scope().Lookup("Target").Type())
-	if !a.NotNil(target) {
-		return
-	}
-	visitable := o.VisitableFrom(NewTraversableSet(target))
-
-	tcs := map[string]*testCase{
-		"*ByRefType": {
-			expectedType: &Pointer{},
-			element: &testCase{
-				declName:     "ByRefType",
-				expectedType: &Struct{},
-				totalFields:  1,
-			},
-			totalFields: 1,
-		},
-		"*ContainerType": {
-			expectedType: &Pointer{},
-			element: &testCase{
-				declName:     "ContainerType",
-				expectedType: &Struct{},
-				totalFields:  18,
-				traversableFields: []string{
-					"AnotherTarget", "AnotherTargetPtr", "ByRefPtr", "ByRefPtrSlice", "ByVal", "ByValPtr",
-					"ByValPtrSlice", "ByValSlice", "Container", "EmbedsTarget", "EmbedsTargetPtr",
-					"InterfacePtrSlice", "NamedTargets", "TargetSlice",
-				},
-			},
-		},
-		"ByValType": {
-			declName:     "ByValType",
-			expectedType: &Struct{},
-			totalFields:  1,
-		},
-		"EmbedsTarget": {
-			declName:     "EmbedsTarget",
-			expectedType: &Interface{},
-		},
-		"Target": {
-			declName:     "Target",
-			expectedType: &Interface{},
-		},
-		"Targets": {
-			declName:     "Targets",
-			expectedType: &Slice{},
-		},
-	}
-	tcs["Targets"].element = tcs["Target"]
-
-	a.Len(visitable, len(tcs))
-
-	for _, target := range visitable {
-		key := QualifiedName("", target)
-		if a.Contains(tcs, key) {
-			tcs[key].found = target
+	found := make(map[string]*ts.T)
+	for _, t := range o.All() {
+		if decl := t.Declaration(); decl != nil {
+			found[decl.Name()] = t
 		}
 	}
 
-	set := NewTraversableSet(visitable...)
+	tcs := map[string]*testCase{
+		"ByRefType": {
+			Kind: ts.Struct,
+		},
+		"ByValType": {
+			Kind: ts.Struct,
+		},
+		"ContainerType": {
+			ActionableFields: []string{
+				"AnotherTarget", "AnotherTargetPtr", "ByRef", "ByRefPtr", "ByRefPtrSlice", "ByRefSlice",
+				"ByVal", "ByValPtr", "ByValPtrSlice", "ByValSlice", "Container", "EmbedsTarget",
+				"EmbedsTargetPtr", "InterfacePtrSlice", "NamedTargets", "ReachableType", "TargetSlice",
+				"UnionableType",
+			},
+			FieldChecks: map[string]*testCase{
+				"ByVal": {
+					Kind: ts.Struct,
+					Name: "ByValType",
+				},
+				"ByValPtr": {
+					Kind: ts.Pointer,
+					Elem: &testCase{
+						Name: "ByValType",
+						Kind: ts.Struct,
+					},
+				},
+				"ByValPtrSlice": {
+					Kind: ts.Slice,
+					Elem: &testCase{
+						Kind: ts.Pointer,
+						Elem: &testCase{
+							Name: "ByValType",
+							Kind: ts.Struct,
+						},
+					},
+				},
+				"NamedTargets": {
+					Kind: ts.Slice,
+					Name: "Targets",
+					Elem: &testCase{
+						Name: "Target",
+						Kind: ts.Interface,
+					},
+				},
+			},
+			Kind: ts.Struct,
+		},
+	}
+
 	for name, tc := range tcs {
 		t.Run(name, func(t *testing.T) {
 			a := assert.New(t)
-			check(a, set, tc, tc.found)
+			tc.Name = name
+			check(a, tc, found[name])
 		})
 	}
-
-	// Ensure that canonicalization works.
-	s1, _ := o.Get(types.NewSlice(target.Declaration().Type()))
-	s2, _ := o.Get(types.NewSlice(target.Declaration().Type()))
-	a.Equal(s1, s2)
-
-	p1, _ := o.Get(types.NewPointer(target.Declaration().Type()))
-	p2, _ := o.Get(types.NewPointer(target.Declaration().Type()))
-	a.Equal(p1, p2)
 }
 
-func check(
-	a *assert.Assertions, visitable TraversableSet, expected *testCase, actual Traversable,
-) {
-	if expected.declName == "" {
-		a.Nil(actual.Declaration())
-	} else {
-		a.Equal(expected.declName, actual.Declaration().Name())
-	}
-
-	if !a.IsType(expected.expectedType, actual) {
+func check(a *assert.Assertions, tc *testCase, v *ts.T) {
+	if !a.NotNil(v, "not found") {
 		return
 	}
 
-	switch t := actual.(type) {
-	case Elementary:
-		// This handles Field, Pointer, and Slice
-		if a.NotNil(expected.element) {
-			check(a, visitable, expected.element, t.Elem())
-		}
-	case *Struct:
-		a.Len(t.fields, expected.totalFields)
+	if decl := v.Declaration(); decl != nil {
+		a.Equal(tc.Name, decl.Name())
+	}
 
-		var traversableFields []string
-		for _, f := range t.fields {
-			if visitable.ShouldTraverse(f) {
-				traversableFields = append(traversableFields, f.Declaration().Name())
+	if tc.Kind != 0 && a.NotNil(v.Traversable()) {
+		a.Equal(tc.Kind, v.Traversable().Kind())
+
+		switch v.Traversable().Kind() {
+		case ts.Pointer, ts.Slice:
+			if tc.Elem != nil {
+				check(a, tc.Elem, v.Traversable().Elem())
+			}
+
+		case ts.Struct:
+			var names []string
+			for name := range v.Traversable().Fields() {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			a.Equal(tc.ActionableFields, names)
+
+			for name, sub := range tc.FieldChecks {
+				if field := v.Traversable().Fields()[name]; a.NotNil(field) {
+					check(a, sub, field)
+				}
 			}
 		}
-		sort.Strings(traversableFields)
-
-		a.Equal(expected.traversableFields, traversableFields)
 	}
 }
