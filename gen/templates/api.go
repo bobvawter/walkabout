@@ -146,12 +146,15 @@ func (d {{ $Decision }}) Replace(x {{ Root }}) {{ $Decision }} {
 // its generated type id and a pointer to the data. 
 func {{ $identify }}(x {{ Root }}) (typeId e.TypeID, data e.Ptr) {
 	switch t := x.(type) {
-		{{ range $imp := VisitableFrom Root -}}
+		{{ range $imp := ImplementorsOf Root -}}
 		case {{ $imp }}:
+			{{ if IsPointer $imp -}}
+			typeId = e.TypeID({{ TypeID $imp.Traversable.Elem }});
+			data = e.Ptr(t);
+			{{- else -}}
 			typeId = e.TypeID({{ TypeID $imp }});
-			{{ if IsPointer $imp }}data = e.Ptr(t);
-			{{ else }}data = e.Ptr(&t);
-			{{ end }}
+			data = e.Ptr(&t);
+			{{- end -}}
 		{{- end -}}
 		default:
 			// The most probable reason for this is that the generated code
@@ -166,9 +169,9 @@ func {{ $identify }}(x {{ Root }}) (typeId e.TypeID, data e.Ptr) {
 // from an internal type token and a pointer to the value.
 func {{ $wrap }}(typeId e.TypeID, x e.Ptr) {{ Root }} {
 	switch {{ $TypeID }}(typeId) {
-	{{ range $imp := Declared -}}
+	{{ range $imp := ImplementorsOf Root -}}
 		{{- if IsPointer $imp -}}
-			case {{ TypeID $imp.Elem }}: return (*{{ $imp.Elem }})(x);
+			case {{ TypeID $imp.Traversable.Elem }}: return (*{{ $imp.Traversable.Elem }})(x);
 			case {{ TypeID $imp }}: return *(*{{ $imp }})(x);
 		{{- end -}}
 	{{- end }}

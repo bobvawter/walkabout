@@ -86,65 +86,7 @@ func TestExampleData(t *testing.T) {
 				}
 				return
 			}
-			/*
-				expectTarget := true
-				v := g.visitation
-				a.Equal(prefix, v.Root.String(), "wrong intfname")
 
-				switch name {
-				case "single":
-					a.Len(v.Types, 16)
-					v.checkStructInfo(a, "ContainerType", "ByRef", "ByRefPtr", "ByRefSlice", "ByRefPtrSlice",
-						"ByVal", "ByValPtr", "ByValSlice", "ByValPtrSlice", "Container", "AnotherTarget",
-						"AnotherTargetPtr", "EmbedsTarget", "EmbedsTargetPtr", "TargetSlice",
-						"InterfacePtrSlice", "NamedTargets")
-
-				case "unionReachable":
-					a.Len(v.Types, 22)
-					v.checkStructInfo(a, "ContainerType", "ByRef", "ByRefPtr", "ByRefSlice", "ByRefPtrSlice",
-						"ByVal", "ByValPtr", "ByValSlice", "ByValPtrSlice", "Container", "AnotherTarget",
-						"AnotherTargetPtr", "EmbedsTarget", "EmbedsTargetPtr", "TargetSlice",
-						"InterfacePtrSlice", "NamedTargets", "UnionableType", "ReachableType")
-					v.checkStructInfo(a, "ReachableType")
-					a.Equal(cfg.union, v.Root.Union)
-
-				case "union":
-					a.Len(v.Types, 20)
-					v.checkStructInfo(a, "ContainerType", "ByRef", "ByRefPtr", "ByRefSlice", "ByRefPtrSlice",
-						"ByVal", "ByValPtr", "ByValSlice", "ByValPtrSlice", "Container", "AnotherTarget",
-						"AnotherTargetPtr", "EmbedsTarget", "EmbedsTargetPtr", "TargetSlice", "InterfacePtrSlice",
-						"NamedTargets", "UnionableType")
-					v.checkStructInfo(a, "UnionableType")
-					a.Equal(cfg.union, v.Root.Union)
-
-				case "structUnion":
-					a.Len(v.Types, 11)
-					v.checkStructInfo(a, "ContainerType", "ByRef", "ByRefPtr", "ByRefSlice", "ByRefPtrSlice",
-						"ByVal", "ByValPtr", "ByValSlice", "ByValPtrSlice", "Container")
-					a.Equal(cfg.union, v.Root.Union)
-					expectTarget = false
-
-				case "structUnionReachable":
-					a.Len(v.Types, 21)
-					v.checkStructInfo(a, "ContainerType", "ByRef", "ByRefPtr", "ByRefSlice", "ByRefPtrSlice",
-						"ByVal", "ByValPtr", "ByValSlice", "ByValPtrSlice", "Container", "AnotherTarget",
-						"AnotherTargetPtr", "EmbedsTarget", "EmbedsTargetPtr", "TargetSlice",
-						"InterfacePtrSlice", "NamedTargets", "UnionableType", "ReachableType")
-					v.checkStructInfo(a, "ReachableType")
-					a.Equal(cfg.union, v.Root.Union)
-					expectTarget = false
-
-				default:
-					a.Fail("unknown test configuration", name)
-				}
-				v.checkStructInfo(a, "ByValType")
-				v.checkStructInfo(a, "ByRefType")
-
-				if expectTarget {
-					v.checkVisitableInterface(a, "Target")
-					v.checkVisitableInterface(a, "EmbedsTarget")
-				}
-			*/
 			cfg := g.packageConfig()
 			cfg.Mode = packages.LoadAllSyntax
 			cfg.Overlay = outputs
@@ -183,32 +125,6 @@ func TestOutputIsStable(t *testing.T) {
 
 			a.Equal(outputs1, outputs2)
 		})
-	}
-}
-
-func (v *visitation) checkVisitableInterface(a *assert.Assertions, name SourceName) {
-	found := v.SourceTypes[name]
-	if a.NotNilf(found, "%s", name) {
-		a.IsTypef(namedInterfaceType{}, found, "%s", name)
-	}
-}
-
-func (v *visitation) checkStructInfo(a *assert.Assertions, name SourceName, hasFields ...string) {
-	t, ok := v.SourceTypes[name]
-	if !a.Truef(ok, "did not find %s", name) || !a.IsTypef(namedStruct{}, t, "%s not a struct", name) {
-		return
-	}
-	s := t.(namedStruct)
-
-	fields := s.Fields()
-	if hasFields == nil {
-		a.Lenf(fields, 0, "%s", name)
-	} else {
-		fieldNames := make([]string, 0, len(s.Fields()))
-		for _, f := range s.Fields() {
-			fieldNames = append(fieldNames, f.Name)
-		}
-		a.Equalf(hasFields, fieldNames, "%s", name)
 	}
 }
 

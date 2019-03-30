@@ -138,14 +138,19 @@ func check(a *assert.Assertions, tc *testCase, v *ts.T) {
 
 		case ts.Struct:
 			var names []string
-			for name := range v.Traversable().Fields() {
-				names = append(names, name)
+			for _, field := range v.Traversable().Fields() {
+				names = append(names, field.Name())
 			}
 			sort.Strings(names)
 			a.Equal(tc.ActionableFields, names)
 
+			fieldsByName := make(map[string]*ts.T, len(v.Traversable().Fields()))
+			for _, field := range v.Traversable().Fields() {
+				fieldsByName[field.Name()] = field.Type()
+			}
+
 			for name, sub := range tc.FieldChecks {
-				if field := v.Traversable().Fields()[name]; a.NotNil(field) {
+				if field := fieldsByName[name]; a.NotNil(field, name) {
 					check(a, sub, field)
 				}
 			}

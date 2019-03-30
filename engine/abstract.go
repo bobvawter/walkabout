@@ -43,8 +43,6 @@ func (a *Abstract) ChildAt(index int) *Abstract {
 
 	// First, we select the child value.
 	switch a.typeData.Kind {
-	case KindOpaque:
-		panic(fmt.Errorf("index out of range: %d", index))
 	case KindStruct:
 		f := a.typeData.Fields[index]
 		chaseType = f.targetData
@@ -108,8 +106,6 @@ func (a *Abstract) NumChildren() int {
 		return 0
 	}
 	switch a.typeData.Kind {
-	case KindOpaque:
-		return 0
 	case KindStruct:
 		return len(a.typeData.Fields)
 	case KindSlice:

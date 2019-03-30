@@ -42,7 +42,7 @@ func (a *{{ $abstract }}) {{ $ChildAt }}(index int) (ret {{ $Abstract }}) {
 		return nil
 	}
 	switch {{ $TypeID }}(impl.TypeID()) {
-	{{ range $s := Declared -}}
+	{{ range $s := Instantiable -}}
 	case {{ TypeID $s }}: ret = (*{{ $s }})(impl.Ptr());
 	case {{ TypeID $s }}Ptr: ret = *(**{{ $s }})(impl.Ptr());
 	{{- end }}
@@ -69,9 +69,9 @@ func (x *{{ $s }}) {{ $ChildAt }}(index int) {{ $Abstract }} {
 	return self.{{ $ChildAt }}(index)
 }
 
-{{ if $struct := IsStruct $s }}
-// {{ $NumChildren }} returns {{ len $struct.Fields }}.
-func (x *{{ $struct }}) {{ $NumChildren }}() int { return {{ len $struct.Fields }} }
+{{ if IsStruct $s }}
+// {{ $NumChildren }} returns {{ len (TraversableFields $s) }}.
+func (x *{{ $s }}) {{ $NumChildren }}() int { return {{ len (TraversableFields $s) }} }
 {{ else }}
 // {{ $NumChildren }} returns 0.
 func (x *{{ $s }}) {{ $NumChildren }}() int { return 0 }

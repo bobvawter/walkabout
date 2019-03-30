@@ -42,7 +42,6 @@ const (
 	KindPointer
 	KindSlice
 	KindStruct
-	KindOpaque
 )
 
 // ActionFn describes a simple callback function.

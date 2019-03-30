@@ -25,12 +25,12 @@ type {{ Root }} interface {
 }
 
 var (
-{{- range $s := Declared }}
+{{- range $s := Visitable }}
 	_ {{ Root }} = &{{ $s }}{}
 {{- end -}}
 )
 
-{{- range $s := Declared  }}
+{{- range $s := Visitable  }}
 func (*{{ $s }}) is{{ Root }}Type() {}
 {{- end -}}
 {{- end -}}

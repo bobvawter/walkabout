@@ -4,9 +4,9 @@ package ts
 
 import "strconv"
 
-const _Kind_name = "FieldInterfaceSliceStructPointer"
+const _Kind_name = "InterfaceSliceStructPointer"
 
-var _Kind_index = [...]uint8{0, 5, 14, 19, 25, 32}
+var _Kind_index = [...]uint8{0, 9, 14, 20, 27}
 
 func (i Kind) String() string {
 	i -= 1

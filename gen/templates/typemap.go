@@ -30,9 +30,9 @@ var {{ $Engine }} = e.New(e.TypeMap {
 		return e.Decision(fn.({{ $WalkerFn }})({{ $Context }}{impl}, (*{{ $s }})(x)))
 	},
 	Fields: []e.FieldInfo {
-		{{ range $f := $s.Fields -}}{{- if ShouldTraverse $f }}
-		{ Name: "{{ $f }}", Offset: unsafe.Offsetof({{ $s }}{}.{{ $f }}), Target: e.TypeID({{ TypeID $f.Elem }})},
-		{{- end -}}{{ end }}
+		{{ range $f := TraversableFields $s -}}
+		{ Name: "{{ $f.Name }}", Offset: unsafe.Offsetof({{ $s }}{}.{{ $f.Name }}), Target: e.TypeID({{ TypeID $f.Type }})},
+		{{ end }}
 	},
 	Name: "{{ $s }}",
 	NewStruct: func() e.Ptr { return e.Ptr(&{{ $s }}{}) },
@@ -42,15 +42,20 @@ var {{ $Engine }} = e.New(e.TypeMap {
 },
 {{ end }}
 // ------ Interfaces ------
-{{ range $s := Intfs }}{{ TypeID $s }}: {
+{{ range $s := Interfaces }}{{ TypeID $s }}: {
 	Copy: func(dest, from e.Ptr) {
 		*(*{{ $s }})(dest) = *(*{{ $s }})(from)
 	},
 	IntfType: func(x e.Ptr) e.TypeID {
 		d := *(*{{ $s }})(x)
 		switch d.(type) {
-		{{ range $imp := VisitableFrom $s -}}
-		case {{ $imp }}: return e.TypeID({{ TypeID $imp }});
+		{{ range $imp := ImplementorsOf $s -}}
+		case {{ $imp }}:
+			{{- if IsPointer $imp -}} 
+				return e.TypeID({{ TypeID $imp.Traversable.Elem }});
+			{{- else -}}
+				return e.TypeID({{ TypeID $imp }});
+			{{- end -}}
 		{{- end }}
 		default:
 			return 0
@@ -59,9 +64,9 @@ var {{ $Engine }} = e.New(e.TypeMap {
 	IntfWrap: func(id e.TypeID, x e.Ptr) e.Ptr {
 		var d {{ $s }}
 		switch {{ $TypeID }}(id) {
-		{{ range $imp := VisitableFrom $s -}}
+		{{ range $imp := ImplementorsOf $s -}}
 			{{- if IsPointer $imp -}}
-				case {{ TypeID $imp.Elem }}: d = (*{{ $imp.Elem }})(x);
+				case {{ TypeID $imp.Traversable.Elem }}: d = (*{{ $imp.Traversable.Elem }})(x);
 				case {{ TypeID $imp }}: d = *(*{{ $imp }})(x);
 			{{- end -}}
 		{{- end }}
@@ -81,7 +86,7 @@ var {{ $Engine }} = e.New(e.TypeMap {
 	Copy: func(dest, from e.Ptr) {
 		*(*{{ $s }})(dest) = *(*{{ $s }})(from)
 	},
-	Elem: e.TypeID({{ TypeID $s.Elem }}),
+	Elem: e.TypeID({{ TypeID $s.Traversable.Elem }}),
 	SizeOf: unsafe.Sizeof(({{ $s }})(nil)),
 	Kind: e.KindPointer,
 	TypeID: e.TypeID({{ TypeID $s }}),
@@ -92,7 +97,7 @@ var {{ $Engine }} = e.New(e.TypeMap {
 	Copy: func(dest, from e.Ptr) {
 		*(*{{ $s }})(dest) = *(*{{ $s }})(from)
 	},
-	Elem: e.TypeID({{ TypeID $s.Elem }}),
+	Elem: e.TypeID({{ TypeID $s.Traversable.Elem }}),
 	Kind: e.KindSlice,
 	NewSlice: func(size int) e.Ptr {
 		x := make({{ $s }}, size)

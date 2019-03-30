@@ -31,7 +31,6 @@ type Kind int
 // Traversal strategies.
 const (
 	_ Kind = iota
-	Field
 	Interface
 	Slice
 	Struct
@@ -46,6 +45,19 @@ func init() {
 	ignoredT.pointerTo = ignoredT
 	ignoredT.sliceOf = ignoredT
 }
+
+// A Field represents a field in a struct type.
+type Field struct {
+	name string
+	typ  *T
+}
+
+// Name returns the name of the field.
+func (f *Field) Name() string { return f.name }
+
+// Type returns the type of the field.
+func (f *Field) Type() *T       { return f.typ }
+func (f *Field) String() string { return f.name }
 
 // T contains the strategies for handling some type within the typesystem.
 type T struct {
@@ -100,30 +112,26 @@ func (t *T) Traversable() *Traversable { return t.traversable }
 // generate traversal code for.
 type Traversable struct {
 	elem   *T
-	fields map[string]*T
+	fields []*Field
 	kind   Kind
 }
 
 // Elem returns the element types.
 func (t *Traversable) Elem() *T {
 	switch t.kind {
-	case Field, Pointer, Slice:
+	case Pointer, Slice:
 		return t.elem
 	default:
 		panic(errors.Errorf("cannot call Elem() on %v", t.kind))
 	}
 }
 
-// Fields returns the fields declared within the struct.
-func (t *Traversable) Fields() map[string]*T {
+// Fields returns the fields declared within the struct in declaration order.
+func (t *Traversable) Fields() []*Field {
 	if t.kind != Struct {
 		panic(errors.Errorf("cannot call Fields() on %v", t.kind))
 	}
-	ret := make(map[string]*T, len(t.fields))
-	for k, v := range t.fields {
-		ret[k] = v
-	}
-	return ret
+	return append(t.fields[:0:0], t.fields...)
 }
 
 // Kind returns the kind of traversable object.

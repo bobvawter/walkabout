@@ -55,6 +55,12 @@ func (o *Oracle) All() []*T {
 			continue
 		}
 		ret = append(ret, v)
+		if v.pointerTo != nil {
+			ret = append(ret, v.pointerTo)
+		}
+		if v.sliceOf != nil {
+			ret = append(ret, v.sliceOf)
+		}
 	}
 	return ret
 }
@@ -66,20 +72,19 @@ func (o *Oracle) Get(typ types.Type) *T {
 	if found, ok := o.data[typ]; ok {
 		return found
 	}
-	// This is a hack to improve developer convenience. When we get
-	// instances of types.Type from the type-checker, they've all been
-	// canonicalized, so we can use pointer references for identity.  We
-	// perform a similar canonicalization so that a caller can do the
-	// obvious thing and call Oracle.Get(types.NewPointer(someType)) and
-	// be guaranteed to receive the same instance each time.
-	if ptr, ok := typ.(*types.Pointer); ok {
-		return o.Get(ptr.Elem()).PointerTo()
-	}
-	if sl, ok := typ.(*types.Slice); ok {
-		return o.Get(sl.Elem()).SliceOf()
-	}
 
 	switch t := typ.(type) {
+	case *types.Pointer:
+		// This is a hack to improve developer convenience. When we get
+		// instances of types.Type from the type-checker, they've all been
+		// canonicalized, so we can use pointer references for identity.  We
+		// perform a similar canonicalization so that a caller can do the
+		// obvious thing and call Oracle.Get(types.NewPointer(someType)) and
+		// be guaranteed to receive the same instance each time.
+		return o.Get(t.Elem()).PointerTo()
+	case *types.Slice:
+		return o.Get(t.Elem()).SliceOf()
+
 	case *types.Named:
 		// We only want to consider exported types that are defined within the
 		// target scopes.
@@ -104,14 +109,14 @@ func (o *Oracle) Get(typ types.Type) *T {
 		ret := &T{}
 		o.data[typ] = ret
 
-		fields := make(map[string]*T, t.NumFields())
+		fields := make([]*Field, 0, t.NumFields())
 		for i, j := 0, t.NumFields(); i < j; i++ {
 			f := t.Field(i)
 			if !f.Exported() {
 				continue
 			}
 			if field := o.Get(f.Type()); !field.IsIgnored() {
-				fields[f.Name()] = field
+				fields = append(fields, &Field{name: f.Name(), typ: field})
 			}
 		}
 		ret.traversable = &Traversable{

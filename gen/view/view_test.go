@@ -26,7 +26,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func TestNewView(t *testing.T) {
+func TestView(t *testing.T) {
 	a := assert.New(t)
 
 	cfg := &packages.Config{
@@ -48,46 +48,126 @@ func TestNewView(t *testing.T) {
 		return
 	}
 
-	v := view.NewView(o, target)
+	tcs := map[string]struct {
+		AllReachable bool
+		Seeds        []string
+		Implements   map[string][]string
+		Traversable  []string
+		Visitable    []string
+	}{
+		"empty": {},
+		"target": {
+			Seeds: []string{"Target"},
+			Implements: map[string][]string{
+				"EmbedsTarget": {"*ByValType", "ByValType"},
+				"Target": {
+					"*ByRefType", "*ByValType", "*ContainerType", "ByValType", "Targets",
+				},
+			},
+			Traversable: []string{
+				"*ByRefType", "*ByValType", "*ContainerType", "*EmbedsTarget",
+				"*Target", "ByRefType", "ByValType", "ContainerType",
+				"EmbedsTarget", "Target", "Targets", "[]*ByRefType",
+				"[]*ByValType", "[]*Target", "[]ByRefType", "[]ByValType",
+				"[]Target",
+			},
+			Visitable: []string{
+				"*ByRefType", "*ContainerType", "ByValType", "EmbedsTarget",
+				"Target", "Targets",
+			},
+		},
+		"justStructs": {
+			Seeds: []string{"ByValType", "ByRefType", "ContainerType"},
+			Traversable: []string{
+				"*ByRefType", "*ByValType", "*ContainerType", "*EmbedsTarget",
+				"*Target", "ByRefType", "ByValType", "ContainerType",
+				"EmbedsTarget", "Target", "Targets", "[]*ByRefType",
+				"[]*ByValType", "[]*Target", "[]ByRefType", "[]ByValType",
+				"[]Target",
+			},
+			Visitable: []string{"ByRefType", "ByValType", "ContainerType"},
+		},
+		"single": {
+			Seeds: []string{"ContainerType"},
+			Traversable: []string{
+				"*ContainerType", "*Target", "ContainerType", "Target",
+				"Targets", "[]*Target", "[]Target",
+			},
+			Visitable: []string{"ContainerType"},
+		},
+		"targetUnion": {
+			AllReachable: true,
+			Seeds:        []string{"Target"},
+			Implements: map[string][]string{
+				"EmbedsTarget": {"*ByValType", "ByValType"},
+				"Target": {
+					"*ByRefType", "*ByValType", "*ContainerType", "ByValType", "Targets",
+				},
+			},
+			Traversable: []string{
+				"*ByRefType", "*ByValType", "*ContainerType", "*EmbedsTarget",
+				"*Target", "*UnionableType", "ByRefType", "ByValType",
+				"ContainerType", "EmbedsTarget", "ReachableType", "Target",
+				"Targets", "UnionableType", "[]*ByRefType", "[]*ByValType",
+				"[]*Target", "[]ByRefType", "[]ByValType", "[]Target",
+			},
+			Visitable: []string{
+				"*ByRefType", "*ContainerType", "ByValType", "EmbedsTarget",
+				"Target", "Targets",
+			},
+		},
+	}
 
-	checkVisitable(a, v, "*ByRefType", "*ContainerType", "ByValType", "EmbedsTarget", "Target", "Targets")
+	for name, tc := range tcs {
+		t.Run(name, func(t *testing.T) {
+			a := assert.New(t)
 
-	checkImplements(a, v, target,
-		"*ByRefType", "*ContainerType", "ByValType", "EmbedsTarget", "Target", "Targets")
-	checkImplements(a, v, o.Get(pkg.Scope().Lookup("EmbedsTarget").Type()),
-		"ByValType", "EmbedsTarget")
+			seeds := make([]*ts.T, 0, len(tc.Seeds))
+			for _, seed := range tc.Seeds {
+				t := o.Get(pkg.Scope().Lookup(seed).Type())
+				seeds = append(seeds, t)
+			}
+			v := view.New(o, seeds, tc.AllReachable)
 
-	checkTraversable(a, v,
-		"*ByRefType", "*ByValType", "*ContainerType", "*EmbedsTarget", "ByValType", "ContainerType",
-		"EmbedsTarget", "Target", "Targets", "[]*ByValType", "[]ByValType")
+			for intfName, impls := range tc.Implements {
+				t := o.Get(pkg.Scope().Lookup(intfName).Type())
+				checkImplements(a, v, t, impls)
+			}
+			checkTraversable(a, v, tc.Traversable)
+			checkVisitable(a, v, tc.Visitable)
+		})
+	}
 }
 
-func checkImplements(a *assert.Assertions, v *view.View, intf *ts.T, expected ...string) {
+func checkImplements(a *assert.Assertions, v *view.View, intf *ts.T, expected []string) {
 	var names []string
 	for _, impl := range v.Interfaces[intf] {
 		names = append(names, impl.String())
 	}
 	sort.Strings(expected)
 	sort.Strings(names)
-	a.Equal(expected, names)
+	a.Equal(expected, names, "implements")
+	a.NotContains(names, "NeverType")
 }
 
-func checkTraversable(a *assert.Assertions, v *view.View, expected ...string) {
+func checkTraversable(a *assert.Assertions, v *view.View, expected []string) {
 	var names []string
 	for impl := range v.Traversable {
 		names = append(names, impl.String())
 	}
 	sort.Strings(expected)
 	sort.Strings(names)
-	a.Equal(expected, names)
+	a.Equal(expected, names, "traversable")
+	a.NotContains(names, "NeverType")
 }
 
-func checkVisitable(a *assert.Assertions, v *view.View, expected ...string) {
+func checkVisitable(a *assert.Assertions, v *view.View, expected []string) {
 	var names []string
 	for visitable := range v.Visitable {
 		names = append(names, visitable.String())
 	}
 	sort.Strings(expected)
 	sort.Strings(names)
-	a.Equal(expected, names)
+	a.Equal(expected, names, "visitable")
+	a.NotContains(names, "NeverType")
 }

@@ -39,7 +39,7 @@ var (
 	_ Target = ByValType{}
 	_ Target = &ContainerType{}
 	_ Target = &ignoredType{}
-	_ Target = &Targets{}
+	_ Target = Targets{}
 )
 
 // EmbedsTarget demonstrates an interface hierarchy.
@@ -52,8 +52,7 @@ var (
 	_ EmbedsTarget = ByValType{}
 )
 
-// Targets is a named slice of a visitable interface. It also implements
-// the Target interface, so it's both visitable and traversable.
+// Targets is a named slice of a visitable interface.
 type Targets []Target
 
 // Value implements the Target interface.
@@ -137,7 +136,7 @@ type ContainerType struct {
 	// Unexported fields aren't generated.
 	ignored ByRefType
 	// Unexported types aren't generated.
-	Ignored []*ignoredType
+	Ignored *ignoredType
 
 	// This field will be generated only when in --union mode.
 	UnionableType *UnionableType
